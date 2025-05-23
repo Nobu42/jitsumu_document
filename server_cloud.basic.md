@@ -1,0 +1,112 @@
+# クラウドサーバ基本設計書
+
+## 1. ドキュメント基本情報
+
+| 項目 | 内容 |
+|------|------|
+| 作成日 | 2025年5月23日 |
+| 作成者 | のぶ |
+| 対象プロジェクト | クラウド移行プロジェクト |
+| 利用クラウド | AWS（us-east-1） |
+| 運用開始予定日 | 2025年6月15日 |
+
+---
+
+## 2. サーバー構成概要（インスタンス情報）
+
+| サーバ名 | 役割 | AMI/OS | インスタンスタイプ | ストレージ | 接続先 |
+|----------|------|--------|---------------------|------------|--------|
+| app01 | Web/APIサーバー | Amazon Linux 2023 | t3.medium | gp3 50GiB | rds01 |
+| rds01 | DB（PostgreSQL） | AWS RDS | db.t3.medium | 100GiB | app01 |
+| bastion01 | 踏み台サーバー | Amazon Linux 2023 | t2.micro | 10GiB | app01, rds01 |
+
+---
+
+## 3. ネットワーク設計（VPC/Subnet/SecurityGroup）
+
+| 項目 | 内容 |
+|------|------|
+| VPC | vpc-xxxxxxxx（/16） |
+| Public Subnet | 10.0.1.0/24 |
+| Private Subnet | 10.0.2.0/24 |
+| NAT Gateway | あり（Public Subnet内） |
+| Route Table | Public: IGW経由、Private: NAT経由 |
+| Security Group例 | SSH, HTTPS許可（IP制限） |
+| NACL | 最小限の通過ルールのみ許可 |
+
+---
+
+## 4. IAM設計
+
+| 要素 | 内容 |
+|------|------|
+| IAMロール | EC2用：SSM接続・S3読み書き |
+| IAMポリシー | 最小権限の原則に従う |
+| IAMユーザー | 開発・運用用に分離 |
+| MFA | 管理ユーザーには必須 |
+| ログ監査 | CloudTrail有効化、S3保存、Athena検索 |
+
+---
+
+## 5. ストレージ設計（EBS/S3）
+
+| 種別 | 内容 |
+|------|------|
+| EBS | 各インスタンスにgp3で50〜100GiB |
+| S3 | バックアップ保存、静的Web用に活用予定 |
+| 暗号化 | EBS/S3共にKMSで暗号化 |
+| ライフサイクル管理 | S3に対し30日後Glacier移行設定あり |
+
+---
+
+## 6. 監視・ログ設計
+
+| 項目 | 内容 |
+|------|------|
+| モニタリング | CloudWatch（CPU、Disk、Status） |
+| アラーム | SNS通知、障害時メール送信 |
+| ログ | CloudWatch Logs + S3アーカイブ |
+| カスタムメトリクス | アプリ応答時間、DB接続数など |
+
+---
+
+## 7. セキュリティ設計
+
+| 項目 | 内容 |
+|------|------|
+| 通信 | ALB経由HTTPS、内部通信はTLS |
+| アクセス制御 | Security Group + IAM |
+| WAF | AWS WAF適用（SQLi, XSS対策） |
+| SSM接続 | Bastion経由ではなくSSM使用 |
+| パッチ管理 | Systems Manager Patch Manager適用 |
+
+---
+
+## 8. バックアップ・リカバリ設計
+
+| 対象 | 方法 | 世代管理 | 保存先 |
+|------|------|----------|--------|
+| EC2 | AMI + スナップショット | 3世代 | S3 |
+| RDS | 自動バックアップ | 7日間保持 | RDS管理領域 |
+| S3 | バージョニング + リージョン複製 | 有効 | Glacier Deep Archive |
+
+---
+
+## 9. タグ設計
+
+| キー | 値 | 説明 |
+|------|----|------|
+| Name | app01 | インスタンス名 |
+| Project | migration2025 | プロジェクト名 |
+| Owner | nobu | 管理者 |
+| Env | prod/test/dev | 環境種別 |
+
+---
+
+## 10. その他設計事項
+
+- 構成管理にはTerraformを使用予定
+- アプリケーションデプロイはCodePipeline + CodeDeploy
+- コンテナ利用予定の場合、ECS Fargate移行を検討中
+- SLA遵守：RTO = 1時間以内、RPO = 15分以内
+
